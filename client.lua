@@ -25,7 +25,8 @@ local function startThread(vehicle)
             local engine, body = Handler:setData({
                 ['engine'] = GetVehicleEngineHealth(vehicle),
                 ['body'] = GetVehicleBodyHealth(vehicle),
-                ['speed'] = GetEntitySpeed(vehicle) * Units
+                ['speed'] = GetEntitySpeed(vehicle) * Units,
+                ['velocity'] = GetEntitySpeedVector(vehicle, true)
             })
 
             -- Prevent negative engine health & driveability handler (engine)
@@ -116,39 +117,71 @@ AddEventHandler('entityDamaged', function(victim, _, weapon, _)
     if GetWeapontypeGroup(weapon) ~= 0 then return end
     if Handler:getClass() == 14 then return end
 
+    local vehicle <const> = cache.vehicle
+    local body <const> = GetVehicleBodyHealth(vehicle)
+    local speed <const> = GetEntitySpeed(vehicle) * Units
+    local velocity <const> = GetEntitySpeedVector(vehicle, true)
+
+    local bodyDiff = Handler:getData('body') - body
+    local speedDiff = Handler:getData('speed') - speed
+    local side = Handler:impactSide(Handler:getData('velocity'), velocity)
+
+    -- One crash fires several damage events before the next reading, so move the readings on:
+    -- the next event of the same crash only counts what it adds
+    Handler:updateData('body', body)
+    Handler:updateData('speed', speed)
+    Handler:updateData('velocity', velocity)
+
     -- Damage handler
-    local bodyDiff = Handler:getData('body') - GetVehicleBodyHealth(cache.vehicle)
     if bodyDiff > 0 then
 
-        -- Calculate latest damage
-        local bodyDamage = bodyDiff * Settings.globalmultiplier * Settings.classmultiplier[Handler:getClass()]
-        local newEngine = GetVehicleEngineHealth(cache.vehicle) - bodyDamage
+        -- Calculate latest damage, capped so one hit can't finish a car
+        local bodyDamage = math.min(bodyDiff * Settings.globalmultiplier * Settings.classmultiplier[Handler:getClass()], Settings.maxdamage or math.huge)
+        local newEngine = GetVehicleEngineHealth(vehicle) - bodyDamage
 
         -- Update engine health
         if newEngine > 0 and newEngine ~= Handler:getData('engine') then
-            SetVehicleEngineHealth(cache.vehicle, newEngine)
+            SetVehicleEngineHealth(vehicle, newEngine)
         else
-            SetVehicleEngineHealth(cache.vehicle, 0.0)
+            SetVehicleEngineHealth(vehicle, 0.0)
+        end
+
+        Handler:updateData('engine', GetVehicleEngineHealth(vehicle))
+
+        -- Lets other resources (like EG-Mechanic) wear their parts from the same hit
+        TriggerEvent('vehiclehandler:impact', vehicle, {
+            body = bodyDiff,
+            speed = speedDiff,
+            side = side,
+            engineSide = Handler:isEngineSide(vehicle, side),
+        })
+
+        -- Knock off a door, the hood or trunk, or smash a window on the side that was hit
+        local breakparts = Settings.breakparts
+
+        if breakparts and breakparts.enabled and Handler:getClass() ~= 8
+            and bodyDiff >= breakparts.health and speedDiff >= breakparts.speed
+            and math.random() < breakparts.chance then
+            Handler:breakPart(vehicle, side)
         end
     end
 
     -- Impact handler
-    local speedDiff = Handler:getData('speed') - (GetEntitySpeed(cache.vehicle) *  Units)
     if speedDiff >= Settings.threshold.speed then
 
-        -- Handle wheel loss
-        if Settings.breaktire then
+        -- Handle wheel loss (breakparts picks wheels on the side that was hit instead)
+        if Settings.breaktire and not (Settings.breakparts and Settings.breakparts.enabled) then
             if bodyDiff >= Settings.threshold.health then
-                math.randomseed(GetGameTimer())
-                Handler:breakTire(cache.vehicle, math.random(0, 1))
+                Handler:breakTire(vehicle, math.random(0, 1))
             end
         end
 
         -- Handle heavy impact (disable vehicle)
         if speedDiff >= Settings.threshold.heavy then
-            SetVehicleUndriveable(cache.vehicle, true)
-            SetVehicleEngineHealth(cache.vehicle, 0.0)
-            SetVehicleEngineOn(cache.vehicle, false, true, false)
+            SetVehicleUndriveable(vehicle, true)
+            SetVehicleEngineHealth(vehicle, 0.0)
+            SetVehicleEngineOn(vehicle, false, true, false)
+            Handler:updateData('engine', 0.0)
         end
     end
 end)
@@ -212,6 +245,35 @@ lib.callback.register('vehiclehandler:adminfuel', function(newlevel)
     if not Handler or not Handler:isActive() then return end
     return Handler:adminfuel(newlevel)
 end)
+
+-- Keeps vehicles from catching fire or exploding, so a destroyed one can still be entered, towed and repaired.
+-- Fire and explosion flags only count on the client that owns a vehicle, so every client sets them on the
+-- vehicles around it; health is only clamped on the ones it owns.
+-- Helicopters, planes and trains still wreck as usual
+local wreckClasses <const> = { [15] = true, [16] = true, [21] = true }
+
+if Settings.nowreck then
+    CreateThread(function()
+        while true do
+            for _, vehicle in ipairs(GetGamePool('CVehicle')) do
+                if not wreckClasses[GetVehicleClass(vehicle)] and not IsEntityDead(vehicle) then
+                    SetDisableVehiclePetrolTankFires(vehicle, true)
+                    SetDisableVehiclePetrolTankDamage(vehicle, true)
+                    SetDisableVehicleEngineFires(vehicle, true)
+                    SetVehicleExplodesOnHighExplosionDamage(vehicle, false)
+
+                    if NetworkGetEntityOwner(vehicle) == cache.playerId then
+                        if GetVehicleEngineHealth(vehicle) < 0 then SetVehicleEngineHealth(vehicle, 0.0) end
+                        if GetVehiclePetrolTankHealth(vehicle) < 0 then SetVehiclePetrolTankHealth(vehicle, 0.0) end
+                        if IsEntityOnFire(vehicle) then StopEntityFire(vehicle) end
+                    end
+                end
+            end
+
+            Wait(1000)
+        end
+    end)
+end
 
 ---@param seat number
 lib.onCache('seat', function(seat)

@@ -7,6 +7,20 @@
 ➢ Disables vehicle after heavy collisions <br>
 ➢ Disables controls while airborne/flipped <br>
 ➢ Repair/Wash item integration (clean, tire, engine) <br>
+➢ Vehicles never catch fire or explode, so a destroyed car can still be entered (`nowreck`) <br>
+➢ Hard hits knock off a door, the hood or trunk, or smash a window on the side hit (`breakparts`) <br>
+➢ Capped damage per hit (`maxdamage`), counted once per crash <br>
+
+## __Impact event:__
+Other client resources can react to the same hits (EG-Mechanic wears its parts from it):
+```lua
+AddEventHandler('vehiclehandler:impact', function(vehicle, hit)
+    -- hit.body        body health the hit took
+    -- hit.speed       speed it took off (units in data/vehicle.lua)
+    -- hit.side        'front', 'rear', 'left' or 'right'
+    -- hit.engineSide  true when the engine is at the side that was hit
+end)
+```
 
 ## __Dependencies:__
 * [ox_lib](https://github.com/CommunityOx/ox_lib)

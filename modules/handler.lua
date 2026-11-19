@@ -10,6 +10,17 @@ local BONES <const> = {
             'wheel_rr'
 }
 
+local DOOR_BONES <const> = { [0] = 'door_dside_f', 'door_pside_f', 'door_dside_r', 'door_pside_r', 'bonnet', 'boot' }
+local WINDOW_BONES <const> = { [0] = 'window_lf', 'window_rf', 'window_lr', 'window_rr', [6] = 'windscreen', [7] = 'windscreen_r' }
+
+-- Doors, windows and wheels on each side of a vehicle, by GTA index
+local SIDE_PARTS <const> = {
+    front = { doors = { 4 }, windows = { 6 }, wheels = { 0, 1 } },
+    rear = { doors = { 5 }, windows = { 7 }, wheels = { 4, 5 } },
+    left = { doors = { 0, 2 }, windows = { 0, 2 }, wheels = { 0, 4 } },
+    right = { doors = { 1, 3 }, windows = { 1, 3 }, wheels = { 1, 5 } },
+}
+
 ---@class privateHandlerData
 ---@field active boolean
 ---@field limited boolean
@@ -139,6 +150,81 @@ function Handler:setData(data)
     self.private.data = data
 
     return data['engine'], data['body'], data['speed']
+end
+
+---Moves one reading on, so the next damage event of the same crash only counts what's new
+---@param state string
+---@param value any
+function Handler:updateData(state, value)
+    if self.private.data then self.private.data[state] = value end
+end
+
+---Which side of the vehicle a hit came from, from how the hit changed its velocity
+---@param before vector3 | nil Velocity relative to the vehicle before the hit
+---@param after vector3 Velocity relative to the vehicle after it
+---@return 'front' | 'rear' | 'left' | 'right'
+function Handler:impactSide(before, after)
+    local change = (before or vec3(0.0, 0.0, 0.0)) - after
+
+    if math.abs(change.y) >= math.abs(change.x) then
+        return change.y >= 0 and 'front' or 'rear'
+    end
+
+    return change.x >= 0 and 'right' or 'left'
+end
+
+---Whether the engine sits at the side of the vehicle that was hit
+---@param vehicle number
+---@param side string
+---@return boolean
+function Handler:isEngineSide(vehicle, side)
+    local backengine = Settings.backengine[GetEntityModel(vehicle)]
+
+    return (side == 'front' and not backengine) or (side == 'rear' and backengine == true)
+end
+
+---Knocks off a door, the hood or trunk, or smashes a window on the side that was hit; a wheel too when breaktire is on
+---@param vehicle number
+---@param side string
+function Handler:breakPart(vehicle, side)
+    local parts = SIDE_PARTS[side]
+    if not parts then return end
+
+    local candidates = {}
+
+    for _, index in ipairs(parts.doors) do
+        if GetEntityBoneIndexByName(vehicle, DOOR_BONES[index]) ~= -1 and not IsVehicleDoorDamaged(vehicle, index) then
+            candidates[#candidates + 1] = { kind = 'door', index = index }
+        end
+    end
+
+    for _, index in ipairs(parts.windows) do
+        if GetEntityBoneIndexByName(vehicle, WINDOW_BONES[index]) ~= -1 and IsVehicleWindowIntact(vehicle, index) then
+            candidates[#candidates + 1] = { kind = 'window', index = index }
+        end
+    end
+
+    if Settings.breaktire then
+        for _, index in ipairs(parts.wheels) do
+            candidates[#candidates + 1] = { kind = 'wheel', index = index }
+        end
+    end
+
+    if #candidates == 0 then return end
+
+    local part = candidates[math.random(#candidates)]
+
+    if part.kind == 'wheel' then
+        return self:breakTire(vehicle, part.index)
+    end
+
+    lib.callback('vehiclehandler:sync', false, function()
+        if part.kind == 'door' then
+            SetVehicleDoorBroken(vehicle, part.index, false)
+        else
+            SmashVehicleWindow(vehicle, part.index)
+        end
+    end)
 end
 
 ---@param vehicle number

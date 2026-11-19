@@ -6,7 +6,15 @@ return {
         speed  = 50.0,          -- Speed difference needed to break off wheel (LastSpeed - CurrentSpeed)
         heavy  = 90.0,          -- Speed difference needed to disable vehicle instantly (LastSpeed - CurrentSpeed)
     },
-    globalmultiplier = 10.0,    -- Base damage multiplier for all vehicles (lower value = less damage)
+    globalmultiplier = 3.0,     -- Engine health lost per point of body health a hit takes (lower value = less damage)
+    maxdamage = 200.0,          -- Most engine health one hit can take (of 1000), so a car survives several hits. Heavy impacts still disable it
+    nowreck = true,             -- Vehicles never catch fire or explode, so a destroyed car can still be entered, towed and repaired
+    breakparts = {              -- Hard hits knock off a door, the hood or trunk, or smash a window on the side that was hit
+        enabled = true,
+        chance  = 0.5,          -- Chance a hard hit breaks one part (0.0 - 1.0)
+        health  = 35.0,         -- Body health the hit must take
+        speed   = 30.0,         -- Speed the hit must take off (units above)
+    },
     classmultiplier = {         -- Add-on damage multiplier for vehicle classes
         [0] =   1.0,            -- 0: Compacts
                 1.0,            -- 1: Sedans
