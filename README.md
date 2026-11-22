@@ -7,7 +7,7 @@
 ➢ Disables vehicle after heavy collisions <br>
 ➢ Disables controls while airborne/flipped <br>
 ➢ Repair/Wash item integration (clean, tire, engine) <br>
-➢ Vehicles never catch fire or explode, so a destroyed car can still be entered (`nowreck`) <br>
+➢ Vehicles never catch fire or explode, so a destroyed car can still be entered (`nowreck`). A bike with a dead engine only has its engine kept off, so its rider can still get back on <br>
 ➢ Hard hits knock off a door, the hood or trunk, or smash a window on the side hit (`breakparts`) <br>
 ➢ Capped damage per hit (`maxdamage`), counted once per crash <br>
 

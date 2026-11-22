@@ -6,6 +6,21 @@ local Handler = require 'modules.handler'
 local Settings <const> = lib.load('data.vehicle')
 local Units <const> = Settings.units == 'mph' and 2.23694 or 3.6
 
+-- Motorcycles and bicycles: GTA won't let anyone back onto one it marks undriveable
+local twoWheels <const> = { [8] = true, [13] = true }
+
+---Stops a vehicle driving. A bike only has its engine turned off, again on each check while it's broken, so its
+---rider can still get back on and it starts as normal once repaired.
+---@param vehicle number
+---@param class number | false
+local function disable(vehicle, class)
+    if twoWheels[class] then
+        if GetIsVehicleEngineRunning(vehicle) then SetVehicleEngineOn(vehicle, false, true, false) end
+    elseif IsVehicleDriveable(vehicle, true) then
+        SetVehicleUndriveable(vehicle, true)
+    end
+end
+
 ---@param vehicle number
 local function startThread(vehicle)
     if not vehicle then return end
@@ -35,9 +50,7 @@ local function startThread(vehicle)
                     SetVehicleEngineHealth(cache.vehicle, 0.0)
                 end
 
-                if IsVehicleDriveable(vehicle, true) then
-                    SetVehicleUndriveable(vehicle, true)
-                end
+                disable(vehicle, class)
             end
 
             -- Prevent negative body health
@@ -45,15 +58,11 @@ local function startThread(vehicle)
                 SetVehicleBodyHealth(cache.vehicle, 0.0)
             end
 
-            -- Driveability handler (fuel)
-            if not electric and class ~= 14 then
+            -- Driveability handler (fuel); boats and bicycles don't run on it
+            if not electric and class ~= 14 and class ~= 13 then
                 local fuel = oxfuel and Entity(vehicle).state.fuel or GetVehicleFuelLevel(vehicle)
 
-                if fuel <= 7 then
-                    if IsVehicleDriveable(vehicle, true) then
-                        SetVehicleUndriveable(vehicle, true)
-                    end
-                end
+                if fuel <= 7 then disable(vehicle, class) end
             end
 
             -- Reduce torque after half-life
@@ -178,9 +187,9 @@ AddEventHandler('entityDamaged', function(victim, _, weapon, _)
 
         -- Handle heavy impact (disable vehicle)
         if speedDiff >= Settings.threshold.heavy then
-            SetVehicleUndriveable(vehicle, true)
             SetVehicleEngineHealth(vehicle, 0.0)
             SetVehicleEngineOn(vehicle, false, true, false)
+            disable(vehicle, Handler:getClass())
             Handler:updateData('engine', 0.0)
         end
     end
@@ -256,7 +265,9 @@ if Settings.nowreck then
     CreateThread(function()
         while true do
             for _, vehicle in ipairs(GetGamePool('CVehicle')) do
-                if not wreckClasses[GetVehicleClass(vehicle)] and not IsEntityDead(vehicle) then
+                local class = GetVehicleClass(vehicle)
+
+                if not wreckClasses[class] and not IsEntityDead(vehicle) then
                     SetDisableVehiclePetrolTankFires(vehicle, true)
                     SetDisableVehiclePetrolTankDamage(vehicle, true)
                     SetDisableVehicleEngineFires(vehicle, true)
@@ -266,6 +277,10 @@ if Settings.nowreck then
                         if GetVehicleEngineHealth(vehicle) < 0 then SetVehicleEngineHealth(vehicle, 0.0) end
                         if GetVehiclePetrolTankHealth(vehicle) < 0 then SetVehiclePetrolTankHealth(vehicle, 0.0) end
                         if IsEntityOnFire(vehicle) then StopEntityFire(vehicle) end
+
+                        -- A bike left undriveable (by an older version or another script) can't be got on; whoever
+                        -- rides it next has its broken engine kept off instead
+                        if twoWheels[class] and not IsVehicleDriveable(vehicle, false) then SetVehicleUndriveable(vehicle, false) end
                     end
                 end
             end
